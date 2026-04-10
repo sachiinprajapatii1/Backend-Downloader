@@ -6,6 +6,7 @@ const fs = require("fs");
 const path = require("path");
 const Download = require("../models/Download");
 
+const cookiesPath = path.join(__dirname, "../cookies.txt");
 const downloadDir = path.join(__dirname, "../downloads");
 if (!fs.existsSync(downloadDir)) fs.mkdirSync(downloadDir, { recursive: true });
 
@@ -23,16 +24,17 @@ function deleteFile(filePath) {
 // =====================
 function runYtDlp(args) {
   return new Promise((resolve, reject) => {
-    // Find yt-dlp executable path
-    const ytdlpPath = require.resolve("yt-dlp-exec").replace("index.js", "").replace("lib/", "");
-    // Use the bundled yt-dlp binary from yt-dlp-exec package
     const binPath = path.join(
       path.dirname(require.resolve("yt-dlp-exec/package.json")),
       "bin",
       process.platform === "win32" ? "yt-dlp.exe" : "yt-dlp"
     );
-
     const bin = fs.existsSync(binPath) ? binPath : "yt-dlp";
+
+    // Inject cookies if available
+    if (fs.existsSync(cookiesPath)) {
+      args = ["--cookies", cookiesPath, ...args];
+    }
 
     execFile(bin, args, { maxBuffer: 1024 * 1024 * 20 }, (err, stdout, stderr) => {
       if (err) reject({ stdout, stderr, message: err.message });
@@ -56,13 +58,11 @@ function cleanUrl(url) {
 }
 
 // =====================
-// HELPER: Estimate size in bytes from format
+// HELPER: Estimate size
 // =====================
 function estimateSize(f, duration) {
-  // Use exact size if available
   if (f.filesize) return f.filesize;
   if (f.filesize_approx) return f.filesize_approx;
-  // Estimate from bitrate × duration (tbr = total bitrate in kbps)
   if (f.tbr && duration) return Math.round((f.tbr * 1000 / 8) * duration);
   if (f.vbr && duration) return Math.round((f.vbr * 1000 / 8) * duration);
   return null;
@@ -82,7 +82,6 @@ function filterFormats(formats = [], duration = 0) {
 
     if (isVideo && isSupportedExt && f.height && allowedHeights.includes(f.height) && !seen.has(f.height)) {
       seen.add(f.height);
-      const sizeBytes = estimateSize(f, duration);
       filtered.push({
         format_id: f.format_id,
         quality:
@@ -91,7 +90,7 @@ function filterFormats(formats = [], duration = 0) {
           `${f.height}p`,
         height: f.height,
         ext: "mp4",
-        filesize: sizeBytes,
+        filesize: estimateSize(f, duration),
       });
     }
   }
@@ -115,6 +114,8 @@ router.post("/", async (req, res) => {
       dumpSingleJson: true,
       noWarnings: true,
       noPlaylist: true,
+      // inject cookies if file exists
+      ...(fs.existsSync(cookiesPath) && { cookies: cookiesPath }),
     });
 
     const formats = filterFormats(data.formats || [], data.duration || 0);
@@ -148,28 +149,13 @@ router.get("/video", async (req, res) => {
 
   const formatArg = format_id === "ORIGINAL_BEST" ? "bestvideo+bestaudio/best" : `${format_id}+bestaudio/best`;
 
-  // Args as array — no shell, no space issues
-  const args = [
-    "-f", formatArg,
-    "--merge-output-format", "mp4",
-    "--no-playlist",
-    "-o", filePath,
-    url2
-  ];
-
-  console.log("yt-dlp args:", args);
+  const args = ["-f", formatArg, "--merge-output-format", "mp4", "--no-playlist", "-o", filePath, url2];
 
   try {
     await runYtDlp(args);
   } catch (err1) {
     console.error("Merge failed:", err1.stderr);
-    // Fallback: no merge needed (single file)
-    const fallbackArgs = [
-      "-f", "best[ext=mp4]/best",
-      "--no-playlist",
-      "-o", filePath,
-      url2
-    ];
+    const fallbackArgs = ["-f", "best[ext=mp4]/best", "--no-playlist", "-o", filePath, url2];
     try {
       await runYtDlp(fallbackArgs);
     } catch (err2) {
@@ -178,7 +164,6 @@ router.get("/video", async (req, res) => {
     }
   }
 
-  // Find actual output file (might be .mkv or .webm)
   let actualPath = filePath;
   if (!fs.existsSync(filePath)) {
     const base = filePath.replace(/\.mp4$/, "");
@@ -205,17 +190,7 @@ router.get("/audio", async (req, res) => {
   const baseName = `audio_${Date.now()}`;
   const filePath = path.join(downloadDir, baseName + ".mp3");
 
-  const args = [
-    "-f", "bestaudio",
-    "--extract-audio",
-    "--audio-format", "mp3",
-    "--audio-quality", "0",
-    "--no-playlist",
-    "-o", filePath,
-    url2
-  ];
-
-  console.log("yt-dlp audio args:", args);
+  const args = ["-f", "bestaudio", "--extract-audio", "--audio-format", "mp3", "--audio-quality", "0", "--no-playlist", "-o", filePath, url2];
 
   let actualPath = null;
 
@@ -224,14 +199,8 @@ router.get("/audio", async (req, res) => {
     actualPath = filePath;
   } catch (err1) {
     console.error("MP3 failed:", err1.stderr);
-    // Fallback: download raw audio without conversion
     const rawPath = path.join(downloadDir, baseName + ".%(ext)s");
-    const fallbackArgs = [
-      "-f", "bestaudio",
-      "--no-playlist",
-      "-o", rawPath,
-      url2
-    ];
+    const fallbackArgs = ["-f", "bestaudio", "--no-playlist", "-o", rawPath, url2];
     try {
       await runYtDlp(fallbackArgs);
       const files = fs.readdirSync(downloadDir).filter(f => f.startsWith(baseName));
