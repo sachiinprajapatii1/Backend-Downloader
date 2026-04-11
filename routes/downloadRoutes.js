@@ -6,45 +6,35 @@ const path = require("path");
 const Download = require("../models/Download");
 
 const cookiesPath = path.join(__dirname, "../cookies.txt");
+const igCookiesPath = path.join(__dirname, "../ig_cookies.txt");
 const downloadDir = path.join(__dirname, "../downloads");
 if (!fs.existsSync(downloadDir)) fs.mkdirSync(downloadDir, { recursive: true });
 
-// =====================
-// HELPER: Delete file safely
-// =====================
 function deleteFile(filePath) {
   setTimeout(() => {
     if (fs.existsSync(filePath)) fs.unlink(filePath, () => {});
   }, 5000);
 }
 
-// =====================
-// HELPER: Find yt-dlp binary
-// =====================
 function getYtDlpBin() {
-  // 1. yt-dlp-exec package ki binary (Windows + Render dono pe kaam karta hai)
   try {
     const pkgDir = path.dirname(require.resolve("yt-dlp-exec/package.json"));
     const bin = path.join(pkgDir, "bin", process.platform === "win32" ? "yt-dlp.exe" : "yt-dlp");
     if (fs.existsSync(bin)) return bin;
   } catch {}
-
-  // 2. Project root mein manually downloaded binary
   const localBin = path.join(__dirname, "../yt-dlp");
   if (fs.existsSync(localBin)) return localBin;
-
-  // 3. System PATH mein
   return process.platform === "win32" ? "yt-dlp.exe" : "yt-dlp";
 }
 
-// =====================
-// HELPER: Run yt-dlp via execFile
-// =====================
-function runYtDlp(args) {
+function runYtDlp(args, useIgCookies = false) {
   return new Promise((resolve, reject) => {
     const bin = getYtDlpBin();
 
-    if (fs.existsSync(cookiesPath)) {
+    // Instagram cookies prefer karo agar useIgCookies true ho
+    if (useIgCookies && fs.existsSync(igCookiesPath)) {
+      args = ["--cookies", igCookiesPath, ...args];
+    } else if (fs.existsSync(cookiesPath)) {
       args = ["--cookies", cookiesPath, ...args];
     }
 
@@ -55,23 +45,23 @@ function runYtDlp(args) {
   });
 }
 
-// =====================
-// HELPER: Strip YouTube tracking params
-// =====================
 function cleanUrl(url) {
   try {
     const u = new URL(url);
     u.searchParams.delete("si");
     u.searchParams.delete("feature");
+    u.searchParams.delete("utm_source");
+    u.searchParams.delete("igsh");
     return u.toString();
   } catch {
     return url;
   }
 }
 
-// =====================
-// HELPER: Estimate size
-// =====================
+function isInstagram(url) {
+  return url.includes("instagram.com");
+}
+
 function estimateSize(f, duration) {
   if (f.filesize) return f.filesize;
   if (f.filesize_approx) return f.filesize_approx;
@@ -80,9 +70,6 @@ function estimateSize(f, duration) {
   return null;
 }
 
-// =====================
-// HELPER: Filter & deduplicate formats
-// =====================
 function filterFormats(formats = [], duration = 0) {
   const allowedHeights = [2160, 1440, 1080, 720, 480];
   const seen = new Set();
@@ -121,12 +108,14 @@ router.post("/", async (req, res) => {
     if (!url) return res.status(400).json({ error: "URL is required" });
 
     const url2 = cleanUrl(url);
+    const ig = isInstagram(url2);
     const args = ["--dump-single-json", "--no-warnings", "--no-playlist", url2];
 
-    const { stdout } = await runYtDlp(args);
+    const { stdout } = await runYtDlp(args, ig);
     const data = JSON.parse(stdout);
 
     const formats = filterFormats(data.formats || [], data.duration || 0);
+    const isPhoto = formats.length === 1; // sirf ORIGINAL_BEST — photo hai
 
     Download.create({ url: url2, title: data.title, thumbnail: data.thumbnail, formats }).catch(() => {});
 
@@ -135,6 +124,7 @@ router.post("/", async (req, res) => {
       thumbnail: data.thumbnail,
       duration: data.duration,
       formats,
+      isPhoto,
       cleanUrl: url2,
     });
 
@@ -152,6 +142,7 @@ router.get("/video", async (req, res) => {
   if (!url || !format_id) return res.status(400).json({ error: "Missing url or format_id" });
 
   const url2 = cleanUrl(url);
+  const ig = isInstagram(url2);
   const fileName = `video_${Date.now()}.mp4`;
   const filePath = path.join(downloadDir, fileName);
 
@@ -159,22 +150,29 @@ router.get("/video", async (req, res) => {
   const args = ["-f", formatArg, "--merge-output-format", "mp4", "--no-playlist", "-o", filePath, url2];
 
   try {
-    await runYtDlp(args);
+    await runYtDlp(args, ig);
   } catch (err1) {
     console.error("Merge failed:", err1.stderr);
-    const fallbackArgs = ["-f", "best[ext=mp4]/best", "--no-playlist", "-o", filePath, url2];
+    // Fallback 1: mp4 only
     try {
-      await runYtDlp(fallbackArgs);
+      await runYtDlp(["-f", "best[ext=mp4]/best", "--no-playlist", "-o", filePath, url2], ig);
     } catch (err2) {
-      console.error("Fallback failed:", err2.stderr);
-      return res.status(500).json({ error: "Video download failed", detail: err2.stderr });
+      console.error("Fallback 1 failed:", err2.stderr);
+      // Fallback 2: any best format — photo/image ke liye bhi kaam karta hai
+      try {
+        await runYtDlp(["-f", "best", "--no-playlist", "-o", filePath, url2], ig);
+      } catch (err3) {
+        console.error("Fallback 2 failed:", err3.stderr);
+        return res.status(500).json({ error: "Download failed", detail: err3.stderr });
+      }
     }
   }
 
+  // Actual file dhundho — extension kuch bhi ho sakta hai
   let actualPath = filePath;
   if (!fs.existsSync(filePath)) {
     const base = filePath.replace(/\.mp4$/, "");
-    const alt = [".mp4", ".mkv", ".webm"].map(e => base + e).find(p => fs.existsSync(p));
+    const alt = [".mp4", ".mkv", ".webm", ".jpg", ".jpeg", ".png"].map(e => base + e).find(p => fs.existsSync(p));
     if (alt) actualPath = alt;
     else return res.status(500).json({ error: "Output file not found" });
   }
@@ -194,6 +192,7 @@ router.get("/audio", async (req, res) => {
   if (!url) return res.status(400).json({ error: "Missing url" });
 
   const url2 = cleanUrl(url);
+  const ig = isInstagram(url2);
   const baseName = `audio_${Date.now()}`;
   const filePath = path.join(downloadDir, baseName + ".mp3");
 
@@ -202,14 +201,13 @@ router.get("/audio", async (req, res) => {
   let actualPath = null;
 
   try {
-    await runYtDlp(args);
+    await runYtDlp(args, ig);
     actualPath = filePath;
   } catch (err1) {
     console.error("MP3 failed:", err1.stderr);
     const rawPath = path.join(downloadDir, baseName + ".%(ext)s");
-    const fallbackArgs = ["-f", "bestaudio", "--no-playlist", "-o", rawPath, url2];
     try {
-      await runYtDlp(fallbackArgs);
+      await runYtDlp(["-f", "bestaudio", "--no-playlist", "-o", rawPath, url2], ig);
       const files = fs.readdirSync(downloadDir).filter(f => f.startsWith(baseName));
       if (files.length > 0) actualPath = path.join(downloadDir, files[0]);
     } catch (err2) {
