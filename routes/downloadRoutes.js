@@ -136,7 +136,8 @@ router.post("/", async (req, res) => {
 
     const isCarousel = data._type === "playlist";
     const formats = filterFormats(data.formats || [], data.duration || 0);
-    const isPhoto = !isCarousel && formats.length === 1;
+    const hasVideo = (data.formats || []).some(f => f.vcodec && f.vcodec !== "none");
+    const isPhoto = !isCarousel && !hasVideo;
 
     Download.create({ url: url2, title: data.title, thumbnail: data.thumbnail, formats }).catch(() => {});
 
