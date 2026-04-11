@@ -3,8 +3,8 @@
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
- "scripts": {
-  "build": "npm install",
+"scripts": {
+  "build": "npm install && pip install spotdl",
   "start": "node server.js",
   "dev": "nodemon server.js"
 },
