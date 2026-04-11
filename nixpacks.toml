@@ -1,0 +1,8 @@
+[phases.setup]
+nixPkgs = ["python3", "ffmpeg", "yt-dlp"]
+
+[phases.install]
+cmds = ["npm ci --ignore-scripts"]
+
+[start]
+cmd = "node server.js"
