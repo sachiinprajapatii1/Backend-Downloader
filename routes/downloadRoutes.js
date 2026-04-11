@@ -19,13 +19,30 @@ function deleteFile(filePath) {
 }
 
 // =====================
+// HELPER: Find yt-dlp binary
+// =====================
+function getYtDlpBin() {
+  // 1. yt-dlp-exec package ki binary (Windows + Render dono pe kaam karta hai)
+  try {
+    const pkgDir = path.dirname(require.resolve("yt-dlp-exec/package.json"));
+    const bin = path.join(pkgDir, "bin", process.platform === "win32" ? "yt-dlp.exe" : "yt-dlp");
+    if (fs.existsSync(bin)) return bin;
+  } catch {}
+
+  // 2. Project root mein manually downloaded binary
+  const localBin = path.join(__dirname, "../yt-dlp");
+  if (fs.existsSync(localBin)) return localBin;
+
+  // 3. System PATH mein
+  return process.platform === "win32" ? "yt-dlp.exe" : "yt-dlp";
+}
+
+// =====================
 // HELPER: Run yt-dlp via execFile
 // =====================
 function runYtDlp(args) {
   return new Promise((resolve, reject) => {
-    const localBin = path.join(__dirname, "../yt-dlp");
-    const bin = fs.existsSync(localBin) ? localBin : 
-                process.platform === "win32" ? "yt-dlp.exe" : "yt-dlp";
+    const bin = getYtDlpBin();
 
     if (fs.existsSync(cookiesPath)) {
       args = ["--cookies", cookiesPath, ...args];
@@ -104,7 +121,6 @@ router.post("/", async (req, res) => {
     if (!url) return res.status(400).json({ error: "URL is required" });
 
     const url2 = cleanUrl(url);
-
     const args = ["--dump-single-json", "--no-warnings", "--no-playlist", url2];
 
     const { stdout } = await runYtDlp(args);
