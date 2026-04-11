@@ -1,6 +1,5 @@
 const express = require("express");
 const router = express.Router();
-
 const { execFile } = require("child_process");
 const fs = require("fs");
 const path = require("path");
@@ -20,18 +19,13 @@ function deleteFile(filePath) {
 }
 
 // =====================
-// HELPER: Run yt-dlp via execFile (handles spaces in paths)
+// HELPER: Run yt-dlp via execFile
 // =====================
 function runYtDlp(args) {
   return new Promise((resolve, reject) => {
-    const binPath = path.join(
-      path.dirname(require.resolve("yt-dlp-exec/package.json")),
-      "bin",
-      process.platform === "win32" ? "yt-dlp.exe" : "yt-dlp"
-    );
-    const bin = fs.existsSync(binPath) ? binPath : "yt-dlp";
+    // Windows pe .exe, Linux/Render pe plain yt-dlp
+    const bin = process.platform === "win32" ? "yt-dlp.exe" : "yt-dlp";
 
-    // Inject cookies if available
     if (fs.existsSync(cookiesPath)) {
       args = ["--cookies", cookiesPath, ...args];
     }
@@ -110,12 +104,7 @@ router.post("/", async (req, res) => {
 
     const url2 = cleanUrl(url);
 
-    const args = [
-      "--dump-single-json",
-      "--no-warnings", 
-      "--no-playlist",
-      url2
-    ];
+    const args = ["--dump-single-json", "--no-warnings", "--no-playlist", url2];
 
     const { stdout } = await runYtDlp(args);
     const data = JSON.parse(stdout);
@@ -150,7 +139,6 @@ router.get("/video", async (req, res) => {
   const filePath = path.join(downloadDir, fileName);
 
   const formatArg = format_id === "ORIGINAL_BEST" ? "bestvideo+bestaudio/best" : `${format_id}+bestaudio/best`;
-
   const args = ["-f", formatArg, "--merge-output-format", "mp4", "--no-playlist", "-o", filePath, url2];
 
   try {
