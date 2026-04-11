@@ -23,8 +23,9 @@ function deleteFile(filePath) {
 // =====================
 function runYtDlp(args) {
   return new Promise((resolve, reject) => {
-    // Windows pe .exe, Linux/Render pe plain yt-dlp
-    const bin = process.platform === "win32" ? "yt-dlp.exe" : "yt-dlp";
+    const localBin = path.join(__dirname, "../yt-dlp");
+    const bin = fs.existsSync(localBin) ? localBin : 
+                process.platform === "win32" ? "yt-dlp.exe" : "yt-dlp";
 
     if (fs.existsSync(cookiesPath)) {
       args = ["--cookies", cookiesPath, ...args];
