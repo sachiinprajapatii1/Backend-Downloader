@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-  "build": "npm install --ignore-scripts",
+  "build": "npm install --ignore-scripts && pip install yt-dlp",
   "start": "node server.js",
   "dev": "nodemon server.js"
 },
