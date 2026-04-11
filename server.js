@@ -7,20 +7,20 @@ const path = require("path");
 
 dotenv.config();
 
-// YouTube cookies
-if (process.env.YOUTUBE_COOKIES) {
-  fs.writeFileSync(path.join(__dirname, "cookies.txt"), process.env.YOUTUBE_COOKIES);
-  console.log("✓ YouTube cookies written");
-} else {
-  console.log("⚠ No YOUTUBE_COOKIES env variable found");
+// YouTube cookies from base64
+if (process.env.YOUTUBE_COOKIES_B64) {
+  const decoded = Buffer.from(process.env.YOUTUBE_COOKIES_B64, "base64").toString("utf8");
+  fs.writeFileSync(path.join(__dirname, "cookies.txt"), decoded);
+  console.log("✓ YouTube cookies written from base64");
 }
 
-// Instagram cookies
-if (process.env.INSTAGRAM_COOKIES) {
-  fs.writeFileSync(path.join(__dirname, "ig_cookies.txt"), process.env.INSTAGRAM_COOKIES);
-  console.log("✓ Instagram cookies written");
+// Instagram cookies from base64
+if (process.env.INSTAGRAM_COOKIES_B64) {
+  const decoded = Buffer.from(process.env.INSTAGRAM_COOKIES_B64, "base64").toString("utf8");
+  fs.writeFileSync(path.join(__dirname, "ig_cookies.txt"), decoded);
+  console.log("✓ Instagram cookies written from base64");
 } else {
-  console.log("⚠ No INSTAGRAM_COOKIES env variable found");
+  console.log("⚠ No INSTAGRAM_COOKIES_B64 found");
 }
 
 const downloadRoutes = require("./routes/downloadRoutes");
