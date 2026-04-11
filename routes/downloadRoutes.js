@@ -1,6 +1,6 @@
 const express = require("express");
 const router = express.Router();
-const ytdlp = require("yt-dlp-exec");
+
 const { execFile } = require("child_process");
 const fs = require("fs");
 const path = require("path");
@@ -110,13 +110,15 @@ router.post("/", async (req, res) => {
 
     const url2 = cleanUrl(url);
 
-    const data = await ytdlp(url2, {
-      dumpSingleJson: true,
-      noWarnings: true,
-      noPlaylist: true,
-      // inject cookies if file exists
-      ...(fs.existsSync(cookiesPath) && { cookies: cookiesPath }),
-    });
+    const args = [
+      "--dump-single-json",
+      "--no-warnings", 
+      "--no-playlist",
+      url2
+    ];
+
+    const { stdout } = await runYtDlp(args);
+    const data = JSON.parse(stdout);
 
     const formats = filterFormats(data.formats || [], data.duration || 0);
 
