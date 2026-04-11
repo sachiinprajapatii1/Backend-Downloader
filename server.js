@@ -17,10 +17,12 @@ if (process.env.YOUTUBE_COOKIES_B64) {
 // Instagram cookies from base64
 if (process.env.INSTAGRAM_COOKIES_B64) {
   const decoded = Buffer.from(process.env.INSTAGRAM_COOKIES_B64, "base64").toString("utf8");
-  fs.writeFileSync(path.join(__dirname, "ig_cookies.txt"), decoded);
-  console.log("✓ Instagram cookies written from base64");
-} else {
-  console.log("⚠ No INSTAGRAM_COOKIES_B64 found");
+  // Ensure Netscape header hai
+  const content = decoded.startsWith("# Netscape") 
+    ? decoded 
+    : "# Netscape HTTP Cookie File\n" + decoded;
+  fs.writeFileSync(path.join(__dirname, "ig_cookies.txt"), content, "utf8");
+  console.log("✓ Instagram cookies written");
 }
 
 const downloadRoutes = require("./routes/downloadRoutes");
