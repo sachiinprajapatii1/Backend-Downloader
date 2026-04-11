@@ -21,14 +21,8 @@ const downloadRoutes = require("./routes/downloadRoutes");
 const app = express();
 
 
+app.use(cors());
 app.use(express.json());
-app.use(cors({
-  origin: [
-    "https://frontend-downloader-qxw6.vercel.app",
-    "http://localhost:5173"
-  ],
-  credentials: true,
-}));
 
 app.use("/api/download", downloadRoutes);
 
